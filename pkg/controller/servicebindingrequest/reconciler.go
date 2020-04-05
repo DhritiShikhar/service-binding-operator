@@ -1,6 +1,8 @@
 package servicebindingrequest
 
 import (
+	"fmt"
+
 	v1 "github.com/openshift/custom-resource-status/conditions/v1"
 	"github.com/redhat-developer/service-binding-operator/pkg/conditions"
 	corev1 "k8s.io/api/core/v1"
@@ -25,14 +27,14 @@ type Reconciler struct {
 // reconcilerLog local logger instance
 var reconcilerLog = log.NewLog("reconciler")
 
-//// validateServiceBindingRequest check for unsupported settings in SBR.
-//func (r *Reconciler) validateServiceBindingRequest(sbr *v1alpha1.ServiceBindingRequest) error {
-//	// check if application ResourceRef and MatchLabels, one of them is required.
-//	if sbr.Spec.ApplicationSelector.ResourceRef == "" &&
-//		sbr.Spec.ApplicationSelector.LabelSelector == nil {
-//		return fmt.Errorf("both ResourceRef and LabelSelector are not set")
-//	}
-//	return nil
+// validateServiceBindingRequest check for unsupported settings in SBR.
+// func (r *Reconciler) validateServiceBindingRequest(sbr *v1alpha1.ServiceBindingRequest) error {
+// 	// check if application ResourceRef and MatchLabels, one of them is required.
+// 	if sbr.Spec.ApplicationSelector.ResourceRef == "" &&
+// 		sbr.Spec.ApplicationSelector.LabelSelector == nil {
+// 		return fmt.Errorf("both ResourceRef and LabelSelector are not set")
+// 	}
+// 	return nil
 //}
 
 // getServiceBindingRequest retrieve the SBR object based on namespaced-name.
@@ -121,10 +123,10 @@ func (r *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, err
 	// validate namespaced ServiceBindingRequest instance (this check has been disabled until test data has been
 	// adjusted to reflect the validation)
 	//
-	//if err = r.validateServiceBindingRequest(sbr); err != nil {
-	//	logger.Error(err, "On validating service-binding-request instance.")
-	//	return Done()
-	//}
+	if err = r.validateServiceBindingRequest(sbr); err != nil {
+		logger.Error(err, "On validating service-binding-request instance.")
+		return Done()
+	}
 
 	logger = logger.WithValues("ServiceBindingRequest.Name", sbr.Name)
 	logger.Debug("Found service binding request to inspect")
@@ -154,18 +156,27 @@ func (r *Reconciler) Reconcile(request reconcile.Request) (reconcile.Result, err
 			}
 
 			v1.SetStatusCondition(&sbr.Status.Conditions, v1.Condition{
-				Type:    conditions.BindingReady,
+				Type:    conditions.CollectionReady,
 				Status:  corev1.ConditionFalse,
 				Reason:  reason,
 				Message: err.Error(),
 			})
 			_, updateErr := updateServiceBindingRequestStatus(r.dynClient, sbr)
+			fmt.Println(">>>>>>>>>>>>>>>>>>>>>>>>0", updateErr)
 			if updateErr == nil {
-				return Done()
+				// return Done()
+				fmt.Println(">>>>>>>>>>>>>>>>>>>>>>>>>>>>1")
+				return Requeue(err, 2)
 			}
 		}
+		fmt.Println(">>>>>>>>>>>>>>>>>>>>>>>>>>>>2")
 		return RequeueError(err)
 	}
+
+	// if sbr.Status.COndition == nil {
+	// 	initialCondition := v1.Condition{Status: corev1.ConditionTrue}
+	// 	sbr.Status.Conditions = append(sbr.Status.Conditions, initialCondition)
+	// }
 
 	if sbr.GetDeletionTimestamp() != nil {
 		logger.Info("Resource is marked for deletion...")
