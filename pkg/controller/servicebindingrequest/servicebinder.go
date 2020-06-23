@@ -250,6 +250,9 @@ func (b *serviceBinder) bind() (reconcile.Result, error) {
 	secretObj, err := b.secret.commit(b.envVars)
 	if err != nil {
 		b.logger.Error(err, "On saving secret data..")
+		if err == ErrSecretAlreadyExists {
+			return done()
+		}
 		return b.onError(err, b.sbr, sbrStatus, nil)
 	}
 	sbrStatus.Secret = secretObj.GetName()

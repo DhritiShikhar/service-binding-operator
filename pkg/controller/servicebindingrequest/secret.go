@@ -7,9 +7,13 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 
+	erro "errors"
+
 	"github.com/redhat-developer/service-binding-operator/pkg/converter"
 	"github.com/redhat-developer/service-binding-operator/pkg/log"
 )
+
+var ErrSecretAlreadyExists = erro.New("secret already exists")
 
 // secret represents the data collected by this operator, and later handled as a secret.
 type secret struct {
@@ -47,7 +51,10 @@ func (s *secret) createOrUpdate(payload map[string][]byte) (*unstructured.Unstru
 
 	logger.Debug("Attempt to create secret...")
 	_, err = resourceClient.Create(u, metav1.CreateOptions{})
-	if err != nil && !errors.IsAlreadyExists(err) {
+	if err != nil {
+		if errors.IsAlreadyExists(err) {
+			return nil, ErrSecretAlreadyExists
+		}
 		return nil, err
 	}
 
