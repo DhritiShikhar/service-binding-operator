@@ -20,11 +20,19 @@ import (
 )
 
 const (
-	// BindingReady indicates that the binding succeeded
-	BindingReady conditionsv1.ConditionType = "Ready"
+	// CollectionReady indicates readiness for collection and persistance of intermediate manifests
+	CollectionReady conditionsv1.ConditionType = "CollectionReady"
+	// InjectionReady indicates readiness to change application manifests to use those intermediate manifests
+	// If status is true, it indicates that the binding succeeded
+	InjectionReady conditionsv1.ConditionType = "InjectionReady"
 	// EmptyServiceSelectorsReason is used when the ServiceBindingRequest has empty
 	// backingServiceSelectors.
 	EmptyServiceSelectorsReason = "EmptyServiceSelectors"
+	// EmptyApplicationSelectorReason is used when the ServiceBindingRequest has empty
+	// applicationSelector.
+	EmptyApplicationSelectorReason = "EmptyApplicationSelector"
+	// ApplicationNotFoundReason is used when the application is not found.
+	ApplicationNotFoundReason = "ApplicationNotFound"
 )
 
 // Reconciler reconciles a ServiceBindingRequest object
@@ -134,7 +142,7 @@ func (r *reconciler) Reconcile(request reconcile.Request) (reconcile.Result, err
 	// fetch and validate namespaced ServiceBindingRequest instance
 	sbr, err := r.getServiceBindingRequest(request.NamespacedName)
 	if err != nil {
-		if errors.Is(err, applicationNotFound) {
+		if errors.Is(err, errApplicationNotFound) {
 			logger.Info("SBR deleted after application deletion")
 			return done()
 		}
@@ -157,13 +165,22 @@ func (r *reconciler) Reconcile(request reconcile.Request) (reconcile.Result, err
 
 	selectors := extractServiceSelectors(sbr)
 	if len(selectors) == 0 {
-		conditionsv1.SetStatusCondition(&sbr.Status.Conditions, conditionsv1.Condition{
-			Type:    BindingReady,
-			Status:  corev1.ConditionFalse,
-			Reason:  EmptyServiceSelectorsReason,
-			Message: "The spec.backingServiceSelectors field is empty.",
-		})
-		_, updateErr := updateServiceBindingRequestStatus(r.dynClient, sbr)
+		_, updateErr := updateServiceBindingRequestStatus(
+			r.dynClient,
+			sbr,
+			conditionsv1.Condition{
+				Type:    CollectionReady,
+				Status:  corev1.ConditionFalse,
+				Reason:  EmptyServiceSelectorsReason,
+				Message: errEmptyBackingServiceSelectors.Error(),
+			},
+			conditionsv1.Condition{
+				Type:    InjectionReady,
+				Status:  corev1.ConditionFalse,
+				Reason:  EmptyServiceSelectorsReason,
+				Message: errEmptyBackingServiceSelectors.Error(),
+			},
+		)
 		if updateErr == nil {
 			return done()
 		}
@@ -227,6 +244,15 @@ func (r *reconciler) Reconcile(request reconcile.Request) (reconcile.Result, err
 		logger.Error(err, "Error add watching application GVR")
 	}
 
+	if sbr.GetDeletionTimestamp() != nil && sbr.GetOwnerReferences() != nil {
+		logger := logger.WithName("Deleting SBR when it has ownerReference")
+		logger.Debug("Removing resource finalizers...")
+		removeFinalizer(sbr)
+		if _, err := updateServiceBindingRequest(r.dynClient, sbr); err != nil {
+			return requeueError(err)
+		}
+		return done()
+	}
 	if sbr.GetDeletionTimestamp() != nil {
 		logger := logger.WithName("unbind")
 		logger.Info("Executing unbinding steps...")

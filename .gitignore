@@ -90,3 +90,4 @@ tags
 .idea
 ### Logs
 **/*.log
+**/*/__pycache__
