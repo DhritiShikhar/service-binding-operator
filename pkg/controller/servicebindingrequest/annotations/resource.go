@@ -154,7 +154,7 @@ func (h *resourceHandler) Handle() (result, error) {
 		h.bindingInfo.SourcePath,
 	}, ".")
 
-	rawDataPath := strings.Join([]string{
+	rawDataPath = strings.Join([]string{
 		h.bindingInfo.ResourceReferencePath,
 		h.bindingInfo.SourcePath,
 	}, ".")
