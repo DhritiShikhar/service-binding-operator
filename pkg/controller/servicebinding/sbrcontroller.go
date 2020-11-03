@@ -140,19 +140,32 @@ func updateFunc(logger *log.Log) func(updateEvent event.UpdateEvent) bool {
 		var specsAreEqual bool
 		var statusAreEqual bool
 
-		if specComparison, err := compareObjectFields(e.ObjectOld, e.ObjectNew, "spec"); err != nil {
-			logger.Error(err, "error comparing object's spec fields: %s", err.Error())
-			return false
+		isDeployment := isOfKind(e.ObjectNew, "Deployment")
+		isDeploymentConfig := isOfKind(e.ObjectNew, "DeploymentConfig")
+		if isDeployment || isDeploymentConfig {
+			if specComparison, err := compareObjectFields(e.ObjectOld, e.ObjectNew, "spec.template.spec.containers[0].envFrom"); err != nil {
+				logger.Error(err, "error comparing object fields")
+				return false
+			} else {
+				specsAreEqual = specComparison.Success
+			}
+			statusAreEqual = true
 		} else {
-			specsAreEqual = specComparison.Success
+			if specComparison, err := compareObjectFields(e.ObjectOld, e.ObjectNew, "spec"); err != nil {
+				logger.Error(err, "error comparing object's spec fields: %s", err.Error())
+				return false
+			} else {
+				specsAreEqual = specComparison.Success
+			}
+
+			if statusComparison, err := compareObjectFields(e.ObjectOld, e.ObjectNew, "status"); err != nil {
+				logger.Error(err, "error comparing object's status fields", err.Error())
+				statusAreEqual = false
+			} else {
+				statusAreEqual = statusComparison.Success
+			}
 		}
 
-		if statusComparison, err := compareObjectFields(e.ObjectOld, e.ObjectNew, "status"); err != nil {
-			logger.Error(err, "error comparing object's status fields", err.Error())
-			statusAreEqual = false
-		} else {
-			statusAreEqual = statusComparison.Success
-		}
 		annotationsAreEqual := true
 		annOld := e.MetaOld.GetAnnotations()
 		annNew := e.MetaNew.GetAnnotations()
