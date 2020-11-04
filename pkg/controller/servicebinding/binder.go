@@ -397,15 +397,15 @@ func (b *binder) updateContainer(container interface{}) (map[string]interface{},
 	// effectively binding the application with intermediary secret
 	c.EnvFrom = b.appendEnvFrom(c.EnvFrom, b.sbr.GetName())
 
-	secretRes := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}
-	existingSecret, err := b.dynClient.Resource(secretRes).Namespace(b.sbr.GetNamespace()).Get(b.sbr.GetName(), metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
+	// secretRes := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}
+	// existingSecret, err := b.dynClient.Resource(secretRes).Namespace(b.sbr.GetNamespace()).Get(b.sbr.GetName(), metav1.GetOptions{})
+	// if err != nil {
+	// 	return nil, err
+	// }
 	// add a special environment variable that is only used to trigger a change in the declaration,
 	// attempting to force a side effect (in case of a Deployment, it would result in its Pods to be
 	// restarted)
-	c.Env = b.appendEnvVar(c.Env, changeTriggerEnv, existingSecret.GetResourceVersion())
+	// c.Env = b.appendEnvVar(c.Env, changeTriggerEnv, existingSecret.GetResourceVersion())
 
 	if len(b.volumeKeys) > 0 {
 		// and adding volume mount entries
@@ -471,6 +471,29 @@ type comparisonResult struct {
 	Success bool
 }
 
+func nestedUnstructuredDeploymentComparison(a, b *unstructured.Unstructured, fields ...string) (*comparisonResult, error) {
+	var (
+		aSlice []interface{}
+		bSlice []interface{}
+		aOk    bool
+		bOk    bool
+		err    error
+	)
+	if aSlice, aOk, err = unstructured.NestedSlice(a.Object, fields...); err != nil {
+		return nil, err
+	}
+
+	if bSlice, bOk, err = unstructured.NestedSlice(b.Object, fields...); err != nil {
+		return nil, err
+	}
+
+	if aOk != bOk {
+		return nil, fmt.Errorf("path should exist in both objects: %v", fields)
+	}
+
+	return nestedSliceComparison(aSlice, bSlice), nil
+}
+
 // nestedUnstructuredComparison compares a nested field from two objects.
 func nestedUnstructuredComparison(a, b *unstructured.Unstructured, fields ...string) (*comparisonResult, error) {
 	var (
@@ -480,7 +503,6 @@ func nestedUnstructuredComparison(a, b *unstructured.Unstructured, fields ...str
 		bOk  bool
 		err  error
 	)
-
 	if aMap, aOk, err = unstructured.NestedMap(a.Object, fields...); err != nil {
 		return nil, err
 	}
@@ -494,6 +516,14 @@ func nestedUnstructuredComparison(a, b *unstructured.Unstructured, fields ...str
 	}
 
 	return nestedMapComparison(aMap, bMap), nil
+}
+
+func nestedSliceComparison(a, b []interface{}) *comparisonResult {
+	diff := cmp.Diff(a, b)
+	if len(diff) != 0 {
+		return &comparisonResult{Success: false, Diff: diff}
+	}
+	return &comparisonResult{Success: true}
 }
 
 func nestedMapComparison(a, b map[string]interface{}) *comparisonResult {

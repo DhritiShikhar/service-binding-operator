@@ -45,6 +45,23 @@ var _ ResourceWatcher = (*sbrController)(nil)
 // controllerName common name of this controller
 const controllerName = "servicebinding-controller"
 
+func compareDeploymentObjectFields(objOld, objNew runtime.Object, fields ...string) (*comparisonResult, error) {
+	mapNew, err := runtime.DefaultUnstructuredConverter.ToUnstructured(objNew)
+	if err != nil {
+		return nil, err
+	}
+	mapOld, err := runtime.DefaultUnstructuredConverter.ToUnstructured(objOld)
+	if err != nil {
+		return nil, err
+	}
+
+	return nestedUnstructuredDeploymentComparison(
+		&unstructured.Unstructured{Object: mapNew},
+		&unstructured.Unstructured{Object: mapOld},
+		fields...,
+	)
+}
+
 // compareObjectFields compares a nested field of two given objects.
 func compareObjectFields(objOld, objNew runtime.Object, fields ...string) (*comparisonResult, error) {
 	mapNew, err := runtime.DefaultUnstructuredConverter.ToUnstructured(objNew)
@@ -143,12 +160,13 @@ func updateFunc(logger *log.Log) func(updateEvent event.UpdateEvent) bool {
 		isDeployment := isOfKind(e.ObjectNew, "Deployment")
 		isDeploymentConfig := isOfKind(e.ObjectNew, "DeploymentConfig")
 		if isDeployment || isDeploymentConfig {
-			if specComparison, err := compareObjectFields(e.ObjectOld, e.ObjectNew, "spec.template.spec.containers[0].envFrom"); err != nil {
+			specComparison, err := compareDeploymentObjectFields(e.ObjectOld, e.ObjectNew, "spec", "template", "spec", "containers")
+			if err != nil {
 				logger.Error(err, "error comparing object fields")
 				return false
-			} else {
-				specsAreEqual = specComparison.Success
 			}
+
+			specsAreEqual = specComparison.Success
 			statusAreEqual = true
 		} else {
 			if specComparison, err := compareObjectFields(e.ObjectOld, e.ObjectNew, "spec"); err != nil {
