@@ -296,7 +296,6 @@ func (b *binder) updateContainers(containers []interface{}) ([]interface{}, erro
 			return nil, err
 		}
 	}
-
 	return containers, nil
 }
 
@@ -395,17 +394,7 @@ func (b *binder) updateContainer(container interface{}) (map[string]interface{},
 	}
 
 	// effectively binding the application with intermediary secret
-	c.EnvFrom = b.appendEnvFrom(c.EnvFrom, b.sbr.GetName())
-
-	secretRes := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}
-	existingSecret, err := b.dynClient.Resource(secretRes).Namespace(b.sbr.GetNamespace()).Get(b.sbr.GetName(), metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-	// add a special environment variable that is only used to trigger a change in the declaration,
-	// attempting to force a side effect (in case of a Deployment, it would result in its Pods to be
-	// restarted)
-	c.Env = b.appendEnvVar(c.Env, changeTriggerEnv, existingSecret.GetResourceVersion())
+	c.EnvFrom = b.appendEnvFrom(c.EnvFrom, b.sbr.Status.Secret)
 
 	if len(b.volumeKeys) > 0 {
 		// and adding volume mount entries
@@ -423,7 +412,7 @@ func (b *binder) removeContainer(container interface{}) (map[string]interface{},
 	}
 
 	// removing intermediary secret, effectively unbinding the application
-	c.EnvFrom = b.removeEnvFrom(c.EnvFrom, b.sbr.GetName())
+	c.EnvFrom = b.removeEnvFrom(c.EnvFrom, b.sbr.Status.Secret)
 
 	if len(b.volumeKeys) > 0 {
 		// removing volume mount entries

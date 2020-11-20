@@ -304,12 +304,28 @@ func (b *serviceBinder) bind() (reconcile.Result, error) {
 
 	b.logger.Debug("Saving data on intermediary secret...")
 
-	secretObj, err := b.secret.createOrUpdate(b.envVars, b.sbr.AsOwnerReference())
+	if b.sbr.Status.Secret != "" && !b.secret.isSame(b.sbr.Status.Secret, b.envVars) {
+		fmt.Println(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>INSIDE")
+		if err := b.binder.unbind(); err != nil {
+			b.logger.Error(err, "On unbinding related objects")
+			return requeueError(err)
+		}
+
+		err := b.secret.delete(b.sbr.Status.Secret)
+		if err != nil {
+			b.logger.Error(err, "On deleting secret")
+			return b.onError(err, b.sbr, sbrStatus, nil)
+		}
+	}
+
+	secretObj, err := b.secret.create(b.envVars, b.sbr.AsOwnerReference())
 	if err != nil {
 		b.logger.Error(err, "On saving secret data..")
 		return b.onError(err, b.sbr, sbrStatus, nil)
 	}
+
 	sbrStatus.Secret = secretObj.GetName()
+	b.sbr.Status.Secret = sbrStatus.Secret
 
 	conditionsv1.SetStatusCondition(&sbrStatus.Conditions, conditionsv1.Condition{
 		Type:   CollectionReady,

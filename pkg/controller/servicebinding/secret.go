@@ -1,7 +1,9 @@
 package servicebinding
 
 import (
+	"crypto/sha1"
 	"encoding/base64"
+	"encoding/hex"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -27,14 +29,48 @@ func (s *secret) buildResourceClient() dynamic.ResourceInterface {
 	return s.client.Resource(gvr).Namespace(s.ns)
 }
 
-// createOrUpdate will take informed payload and either create a new secret or update an existing
-// one. It can return error when Kubernetes client does.
-func (s *secret) createOrUpdate(payload map[string][]byte, ownerReference metav1.OwnerReference) (*unstructured.Unstructured, error) {
+// compare existing secret and new secret
+func (s *secret) isSame(secretName string, payload map[string][]byte) bool {
 	logger := s.logger.WithValues("Namespace", s.ns, "Name", s.name)
+
+	resourceClient := s.buildResourceClient()
+	existingSecret, err := resourceClient.Get(secretName, metav1.GetOptions{})
+	if err != nil {
+		logger.Error(err, "Error fetching secret")
+		return false
+	}
+	existingSecretData, _, _ := unstructured.NestedMap(existingSecret.Object, "data")
+
+	payloadInterim := make(map[string]interface{})
+	for k, v := range payload {
+		payloadInterim[k] = base64.StdEncoding.EncodeToString(v)
+	}
+
+	comparisonResult := nestedMapComparison(existingSecretData, payloadInterim)
+
+	if comparisonResult.Success {
+		logger.Debug("Secret data is same.")
+		return true
+	}
+
+	return false
+}
+
+func hash(text string) string {
+	algorithm := sha1.New()
+	algorithm.Write([]byte(text))
+	return hex.EncodeToString(algorithm.Sum(nil))
+}
+
+// create will take informed payload and create a new secret
+// one. It can return error when Kubernetes client does.
+func (s *secret) create(payload map[string][]byte, ownerReference metav1.OwnerReference) (*unstructured.Unstructured, error) {
+	logger := s.logger.WithValues("Namespace", s.ns, "Name", s.name)
+
 	secretObj := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:       s.ns,
-			Name:            s.name,
+			Name:            s.name + "-" + hash(payload),
 			OwnerReferences: []metav1.OwnerReference{ownerReference},
 		},
 		Data: payload,
@@ -49,7 +85,7 @@ func (s *secret) createOrUpdate(payload map[string][]byte, ownerReference metav1
 	resourceClient := s.buildResourceClient()
 
 	logger.Debug("Attempt to create secret...")
-	existingSecret, err := s.get()
+	_, err = s.get()
 	if err != nil {
 		if errors.IsNotFound(err) {
 			_, err := resourceClient.Create(u, metav1.CreateOptions{})
@@ -62,22 +98,17 @@ func (s *secret) createOrUpdate(payload map[string][]byte, ownerReference metav1
 		}
 		return nil, err
 	}
-	existingSecretData, _, _ := unstructured.NestedMap(existingSecret.Object, "data")
-	payloadInterim := make(map[string]interface{})
-	for k, v := range payload {
-		payloadInterim[k] = base64.StdEncoding.EncodeToString(v)
-	}
-	comparisonResult := nestedMapComparison(existingSecretData, payloadInterim)
-	if comparisonResult.Success {
-		logger.Debug("Secret data is same. Skip Update")
-	} else {
-		logger.Info("Secret data is different; update secret", "Diff", comparisonResult.Diff)
-		_, err = resourceClient.Update(u, metav1.UpdateOptions{})
-		if err != nil {
-			return nil, err
-		}
-	}
 	return u, nil
+}
+
+func (s *secret) delete(secretName string) error {
+	resourceClient := s.buildResourceClient()
+	err := resourceClient.Delete(secretName, &metav1.DeleteOptions{})
+	if err != nil {
+		return err
+	}
+	return nil
+
 }
 
 // get an unstructured object from the secret handled by this component. It can return errors in case
@@ -85,6 +116,17 @@ func (s *secret) createOrUpdate(payload map[string][]byte, ownerReference metav1
 func (s *secret) get() (*unstructured.Unstructured, error) {
 	resourceClient := s.buildResourceClient()
 	u, err := resourceClient.Get(s.name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+// get an unstructured object from the secret handled by this component. It can return errors in case
+// the API server does.
+func (s *secret) get2(secretName string) (*unstructured.Unstructured, error) {
+	resourceClient := s.buildResourceClient()
+	u, err := resourceClient.Get(secretName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -100,8 +142,7 @@ func newSecret(
 	return &secret{
 		logger: log.NewLog("secret"),
 		client: client,
-
-		name: name,
-		ns:   ns,
+		name:   name,
+		ns:     ns,
 	}
 }
