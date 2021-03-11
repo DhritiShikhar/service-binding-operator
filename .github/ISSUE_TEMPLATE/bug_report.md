@@ -7,21 +7,21 @@ assignees: ''
 
 ---
 
-### Environment (Minikube, Openshift)
+### What is the environment (Minikube, Openshift)?
 
 
-### SBO version
+### What is the SBO version used?
 
 
-### Steps to reproduce
+### What are the steps to reproduce this issue?
   1. 
   2. 
   3. 
   4. 
 
 
-### Expected Behaviour
+### What is the expected behaviour?
 
 
-### Actual Behaviour
+### What is the actual behaviour?
 
